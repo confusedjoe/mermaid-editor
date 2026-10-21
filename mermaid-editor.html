@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mermaid Editor</title>
+<style>
+:root{
+  --bg:#f4f5f7;--panel:#ffffff;--border:#d9dde3;--text:#1d232b;--muted:#6b7480;
+  --accent:#2f6fde;--accent-weak:#e6efff;--danger:#c93c3c;--canvas:#fbfbfc;--grid:#d8dce2;
+  --code-bg:#ffffff;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14171c;--panel:#1c2026;--border:#2e343c;--text:#e4e7eb;--muted:#9099a5;
+    --accent:#5b8ff0;--accent-weak:#22314d;--danger:#e06666;--canvas:#181b20;--grid:#2c3139;
+    --code-bg:#171a1f;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#14171c;--panel:#1c2026;--border:#2e343c;--text:#e4e7eb;--muted:#9099a5;
+  --accent:#5b8ff0;--accent-weak:#22314d;--danger:#e06666;--canvas:#181b20;--grid:#2c3139;
+  --code-bg:#171a1f;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--border)}
+header h1{font-size:15px;margin:0 10px 0 0;font-weight:600}
+.grp{display:flex;gap:4px;align-items:center;padding-right:8px;margin-right:4px;border-right:1px solid var(--border)}
+.grp:last-child{border-right:0}
+button,select,label.btn{font:inherit;font-size:13px;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;white-space:nowrap}
+button:hover,select:hover,label.btn:hover{border-color:var(--accent)}
+button.on{background:var(--accent-weak);border-color:var(--accent);color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+main{flex:1;display:grid;grid-template-columns:var(--split,38%) 6px 1fr;min-height:0}
+#editorPane{display:flex;flex-direction:column;min-width:0;background:var(--code-bg)}
+#code{flex:1;width:100%;resize:none;border:0;outline:0;padding:12px 14px;background:var(--code-bg);color:var(--text);font:13px/1.55 ui-monospace,Consolas,"Cascadia Code",monospace;tab-size:4;white-space:pre;overflow:auto}
+#error{display:none;padding:8px 12px;background:color-mix(in srgb,var(--danger) 14%,transparent);color:var(--danger);font:12px/1.4 ui-monospace,Consolas,monospace;white-space:pre-wrap;border-top:1px solid var(--border);max-height:30%;overflow:auto}
+#error.show{display:block}
+#splitter{background:var(--border);cursor:col-resize}
+#splitter:hover{background:var(--accent)}
+#canvas{position:relative;overflow:hidden;background-color:var(--canvas);background-image:radial-gradient(var(--grid) 1px,transparent 1px);cursor:grab;touch-action:none}
+#canvas.panning{cursor:grabbing}
+#canvas.connect{cursor:crosshair}
+#viewport{position:absolute;left:0;top:0;transform-origin:0 0}
+#viewport svg{display:block;overflow:visible}
+#viewport g.node,#viewport g.cluster{cursor:move}
+#canvas.connect g.node{cursor:crosshair}
+#viewport g.sel{filter:drop-shadow(0 0 3px var(--accent)) drop-shadow(0 0 1px var(--accent))}
+#viewport g.src{filter:drop-shadow(0 0 4px #e0a020) drop-shadow(0 0 1px #e0a020)}
+footer{display:flex;gap:16px;align-items:center;padding:5px 12px;background:var(--panel);border-top:1px solid var(--border);color:var(--muted);font-size:12px}
+footer .sp{flex:1}
+#zoomLbl{min-width:44px;text-align:right}
+#toast{position:fixed;left:50%;bottom:44px;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:7px 14px;border-radius:6px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.show{opacity:.95}
+#drop{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--accent) 18%,transparent);border:3px dashed var(--accent);font-size:20px;color:var(--accent);z-index:10}
+#drop.show{display:flex}
+@media (max-width:800px){
+  main{grid-template-columns:1fr;grid-template-rows:40% 0 1fr}
+  #splitter{display:none}
+  footer .hint{display:none}
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Mermaid Editor</h1>
+  <div class="grp">
+    <select id="tpl" title="Vorlage laden">
+      <option value="">Vorlage …</option>
+      <option value="flow">Flowchart</option>
+      <option value="seq">Sequenzdiagramm</option>
+      <option value="class">Klassendiagramm</option>
+      <option value="state">Zustandsdiagramm</option>
+      <option value="er">ER-Diagramm</option>
+      <option value="gantt">Gantt</option>
+      <option value="mind">Mindmap</option>
+      <option value="pie">Kreisdiagramm</option>
+    </select>
+    <label class="btn" title="Datei öffnen (.mmd / .md)">Öffnen<input id="file" type="file" accept=".mmd,.mermaid,.md,.txt" hidden></label>
+    <button id="saveMmd" title="Als .mmd speichern (Strg+S)">Speichern</button>
+    <button id="expSvg">SVG</button>
+    <button id="expPng">PNG</button>
+  </div>
+  <div class="grp">
+    <button id="addNode" title="Neuen Knoten anfügen (an Auswahl angehängt)">+ Knoten</button>
+    <button id="connect" title="Zwei Knoten nacheinander anklicken">Verbinden</button>
+    <button id="rename" title="Doppelklick auf Knoten geht auch">Umbenennen</button>
+    <button id="del" title="Entf">Löschen</button>
+  </div>
+  <div class="grp">
+    <button id="undo" title="Rückgängig (Strg+Z ausserhalb des Editors)">↶</button>
+    <button id="redo" title="Wiederholen (Strg+Y)">↷</button>
+  </div>
+  <div class="grp">
+    <button id="fit">Einpassen</button>
+    <button id="resetLayout" title="Alle verschobenen Positionen verwerfen">Layout zurücksetzen</button>
+    <select id="theme" title="Diagramm-Theme">
+      <option value="auto">Theme: auto</option>
+      <option value="default">default</option>
+      <option value="neutral">neutral</option>
+      <option value="forest">forest</option>
+      <option value="dark">dark</option>
+      <option value="base">base</option>
+    </select>
+  </div>
+</header>
+<main id="main">
+  <div id="editorPane">
+    <textarea id="code" spellcheck="false" autocomplete="off" wrap="off"></textarea>
+    <div id="error"></div>
+  </div>
+  <div id="splitter"></div>
+  <div id="canvas"><div id="viewport"></div></div>
+</main>
+<footer>
+  <span class="hint">Knoten ziehen = verschieben · Hintergrund ziehen = Ansicht schieben · Mausrad = Zoom · Doppelklick = umbenennen · Entf = löschen</span>
+  <span class="sp"></span>
+  <span id="info"></span>
+  <span id="zoomLbl">100%</span>
+</footer>
+<div id="toast"></div>
+<div id="drop">Datei hier ablegen</div>
+
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
+
+const $ = s => document.querySelector(s);
+const code = $('#code'), canvas = $('#canvas'), viewport = $('#viewport'), errBox = $('#error');
+const STORE = 'mermaid-editor-v1';
+
+const TEMPLATES = {
+flow: `flowchart TD
+    Start([Start]) --> Eingabe[/Daten einlesen/]
+    Eingabe --> Pruefen{Daten gültig?}
+    Pruefen -- Ja --> Verarbeiten[Verarbeiten]
+    Pruefen -- Nein --> Fehler[Fehler melden]
+    Fehler --> Eingabe
+    subgraph Kern [Verarbeitung]
+        Verarbeiten --> Speichern[(Datenbank)]
+    end
+    Speichern --> Ende([Ende])
+`,
+seq: `sequenceDiagram
+    participant HMI
+    participant SPS
+    participant Antrieb
+    HMI->>SPS: Start-Befehl
+    SPS->>Antrieb: Freigabe
+    Antrieb-->>SPS: Bereit
+    loop Zyklisch
+        SPS->>Antrieb: Sollposition
+        Antrieb-->>SPS: Istposition
+    end
+    SPS-->>HMI: Status OK
+`,
+class: `classDiagram
+    class Achse {
+        +REAL rPosition
+        +REAL rGeschwindigkeit
+        +Bewegen(ziel)
+        +Stopp()
+    }
+    class Greifer {
+        +BOOL bVakuum
+        +Greifen()
+        +Loslassen()
+    }
+    class Roboter {
+        +Achse[] achsen
+        +Greifer greifer
+    }
+    Roboter "1" *-- "n" Achse
+    Roboter "1" *-- "1" Greifer
+`,
+state: `stateDiagram-v2
+    [*] --> Init
+    Init --> Bereit : Referenzfahrt ok
+    Bereit --> Automatik : Start
+    Automatik --> Bereit : Stopp
+    Automatik --> Stoerung : Fehler
+    Bereit --> Stoerung : Fehler
+    Stoerung --> Init : Quittieren
+`,
+er: `erDiagram
+    KUNDE ||--o{ AUFTRAG : erteilt
+    AUFTRAG ||--|{ POSITION : enthaelt
+    ARTIKEL ||--o{ POSITION : "kommt vor in"
+    KUNDE {
+        int id
+        string name
+    }
+    ARTIKEL {
+        int id
+        string bezeichnung
+        float preis
+    }
+`,
+gantt: `gantt
+    title Projektplan
+    dateFormat YYYY-MM-DD
+    section Planung
+        Anforderungen   :a1, 2026-10-01, 7d
+        Konzept         :a2, after a1, 10d
+    section Umsetzung
+        Programmierung  :b1, after a2, 20d
+        Test            :b2, after b1, 7d
+    section Abschluss
+        Dokumentation   :c1, after b2, 5d
+`,
+mind: `mindmap
+  root((Projekt))
+    Hardware
+      SPS
+      Antriebe
+      Sensoren
+    Software
+      CODESYS
+      HMI
+    Dokumentation
+      Bericht
+      Präsentation
+`,
+pie: `pie title Zeitaufwand
+    "Programmierung" : 45
+    "Test" : 25
+    "Dokumentation" : 20
+    "Meetings" : 10
+`
+};
+
+/* ---------- state ---------- */
+let view = { zoom: 1, panX: 40, panY: 40 };
+let themeSel = 'auto';
+let layout = {};            // key -> [dx, dy]
+let items = new Map();      // key -> {el, base, rect, kind, children}
+let elKey = new Map();      // element -> key
+let edges = [];             // {el, d0, pts, from, to, labels:[{el, base, t}]}
+let svgEl = null;
+let selected = null, connectMode = false, connectFrom = null;
+let history = [], hIndex = -1;
+let renderSeq = 0, firstRender = true;
+
+/* ---------- storage ---------- */
+function load() {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORE) || 'null');
+    if (s) { themeSel = s.theme || 'auto'; if (s.split) document.documentElement.style.setProperty('--split', s.split); return s.code; }
+  } catch {}
+  return null;
+}
+function save() {
+  try { localStorage.setItem(STORE, JSON.stringify({ code: code.value, theme: themeSel, split: getComputedStyle(document.documentElement).getPropertyValue('--split').trim() || null })); } catch {}
+}
+
+/* ---------- layout comment ---------- */
+const LAYOUT_RE = /^%%\s*@layout\s+(\{.*\})\s*$/m;
+function parseLayout(t) { const m = t.match(LAYOUT_RE); try { return m ? JSON.parse(m[1]) : {}; } catch { return {}; } }
+function stripLayout(t) { return t.replace(/^%%\s*@layout.*(\r?\n)?/m, ''); }
+function withLayout(t) {
+  t = stripLayout(t).replace(/\s+$/, '');
+  const o = {};
+  for (const k in layout) {
+    const v = layout[k];
+    if (Math.abs(v[0]) > .5 || Math.abs(v[1]) > .5) o[k] = [Math.round(v[0]), Math.round(v[1])];
+  }
+  if (Object.keys(o).length) t += '\n%% @layout ' + JSON.stringify(o);
+  return t + '\n';
+}
+
+/* ---------- history ---------- */
+function pushHistory() {
+  const t = code.value;
+  if (history[hIndex] === t) return;
+  history = history.slice(0, hIndex + 1);
+  history.push(t);
+  if (history.length > 200) history.shift();
+  hIndex = history.length - 1;
+  updateButtons();
+}
+function undo() { if (hIndex > 0) { code.value = history[--hIndex]; save(); render(); updateButtons(); } }
+function redo() { if (hIndex < history.length - 1) { code.value = history[++hIndex]; save(); render(); updateButtons(); } }
+function setCode(t, rerender = true) { code.value = t; save(); pushHistory(); if (rerender) render(); }
+
+/* ---------- helpers ---------- */
+const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove('show'), 2200); }
+function download(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); }
+function isFlowchart() {
+  const line = stripLayout(code.value).split('\n').map(l => l.trim()).find(l => l && !l.startsWith('%%'));
+  return !!line && /^(flowchart|graph)\b/.test(line);
+}
+function uiDark() {
+  const t = document.documentElement.dataset.theme;
+  return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function keyOf(el) { return (el.id || el.getAttribute('data-id') || '').replace(/^mmdsvg\d+-/, '').replace(/-\d+$/, ''); }
+function flowId(key) { return key.replace(/^flowchart-/, ''); }
+
+function toRoot(el, x, y) {
+  const m = svgEl.getScreenCTM().inverse().multiply(el.getScreenCTM());
+  const p = svgEl.createSVGPoint(); p.x = x; p.y = y;
+  return p.matrixTransform(m);
+}
+function rectRoot(el) {
+  const b = el.getBBox();
+  const a = toRoot(el, b.x, b.y), c = toRoot(el, b.x + b.width, b.y + b.height);
+  return { x: Math.min(a.x, c.x), y: Math.min(a.y, c.y), w: Math.abs(c.x - a.x), h: Math.abs(c.y - a.y) };
+}
+function distRect(p, r) {
+  const dx = Math.max(r.x - p.x, 0, p.x - (r.x + r.w)), dy = Math.max(r.y - p.y, 0, p.y - (r.y + r.h));
+  return Math.hypot(dx, dy);
+}
+function nearestItem(p) {
+  let best = null, bd = 40, ba = Infinity;
+  for (const [k, it] of items) {
+    const d = distRect(p, it.rect), a = it.rect.w * it.rect.h;
+    if (d < bd - .01 || (Math.abs(d - bd) <= .01 && a < ba)) { best = k; bd = d; ba = a; }
+  }
+  return best;
+}
+
+/* ---------- render ---------- */
+async function render() {
+  const seq = ++renderSeq;
+  const text = code.value;
+  layout = parseLayout(text);
+  const theme = themeSel === 'auto' ? (uiDark() ? 'dark' : 'default') : themeSel;
+  try {
+    mermaid.initialize({ startOnLoad: false, theme, securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false }, class: { htmlLabels: false } });
+    await mermaid.parse(text);
+    const { svg } = await mermaid.render('mmdsvg' + seq, text);
+    if (seq !== renderSeq) return;
+    viewport.innerHTML = svg;
+    errBox.classList.remove('show');
+    svgEl = viewport.querySelector('svg');
+    const vb = svgEl.viewBox.baseVal;
+    if (vb && vb.width) { svgEl.setAttribute('width', vb.width); svgEl.setAttribute('height', vb.height); }
+    svgEl.style.maxWidth = 'none';
+    collect();
+    applyLayout();
+    if (selected && items.has(selected)) items.get(selected).el.classList.add('sel'); else selected = null;
+    if (firstRender) { firstRender = false; fit(); }
+    $('#info').textContent = items.size ? `${items.size} verschiebbare Elemente` : 'Diagrammtyp ohne verschiebbare Knoten';
+  } catch (e) {
+    document.getElementById('dmmdsvg' + seq)?.remove();
+    if (seq !== renderSeq) return;
+    errBox.textContent = String(e?.message || e).replace(/^Error:\s*/, '');
+    errBox.classList.add('show');
+  }
+  updateButtons();
+}
+
+function collect() {
+  items.clear(); elKey.clear(); edges = [];
+  const add = (el, kind) => {
+    let k = (kind === 'cluster' ? 'cluster:' : '') + keyOf(el);
+    if (!k || k === 'cluster:') return;
+    while (items.has(k)) k += '#';
+    items.set(k, { el, kind, base: el.getAttribute('transform') || '', rect: rectRoot(el), children: [] });
+    elKey.set(el, k);
+  };
+  viewport.querySelectorAll('g.node').forEach(el => { if (!el.parentElement.closest('g.node')) add(el, 'node'); });
+  viewport.querySelectorAll('g.cluster').forEach(el => add(el, 'cluster'));
+
+  // Cluster enthalten alle Elemente, deren Mittelpunkt im Cluster-Rechteck liegt
+  for (const [k, c] of items) {
+    if (c.kind !== 'cluster') continue;
+    for (const [k2, it] of items) {
+      if (k2 === k) continue;
+      const cx = it.rect.x + it.rect.w / 2, cy = it.rect.y + it.rect.h / 2;
+      const r = c.rect;
+      if (cx > r.x && cx < r.x + r.w && cy > r.y && cy < r.y + r.h && it.rect.w * it.rect.h < r.w * r.h) c.children.push(k2);
+    }
+  }
+
+  const paths = new Set(viewport.querySelectorAll('.edgePaths path, path.flowchart-link, path.relation, path.transition, path[marker-end], path[marker-start]'));
+  for (const p of paths) {
+    if (p.closest('g.node') || p.closest('marker') || p.closest('defs')) continue;
+    let len; try { len = p.getTotalLength(); } catch { continue; }
+    if (!(len > 1)) continue;
+    const n = Math.round(Math.max(16, Math.min(90, len / 6)));
+    const pts = [];
+    for (let i = 0; i < n; i++) { const q = p.getPointAtLength(len * i / (n - 1)); pts.push({ x: q.x, y: q.y }); }
+    const a = toRoot(p, pts[0].x, pts[0].y), b = toRoot(p, pts[n - 1].x, pts[n - 1].y);
+    edges.push({ el: p, d0: p.getAttribute('d'), pts, rootPts: null, from: nearestItem(a), to: nearestItem(b), labels: [] });
+  }
+  // Kantenbeschriftungen der nächstgelegenen Kante zuordnen
+  const labels = new Set(viewport.querySelectorAll('g.edgeLabel, .edgeLabels > g, g.edgeTerminals'));
+  for (const l of labels) {
+    if (l.parentElement.closest('g.edgeLabel')) continue;
+    let r; try { r = rectRoot(l); } catch { continue; }
+    if (!r.w && !r.h) continue;
+    const c = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    let best = null, bd = Infinity, bt = .5;
+    for (const e of edges) {
+      e.pts.forEach((q, i) => {
+        const g = toRoot(e.el, q.x, q.y), d = Math.hypot(g.x - c.x, g.y - c.y);
+        if (d < bd) { bd = d; best = e; bt = i / (e.pts.length - 1); }
+      });
+    }
+    if (best) best.labels.push({ el: l, base: l.getAttribute('transform') || '', t: bt });
+  }
+}
+
+const off = k => (k && layout[k]) || [0, 0];
+function applyLayout() {
+  for (const [k, it] of items) {
+    const o = off(k);
+    it.el.setAttribute('transform', (o[0] || o[1] ? `translate(${o[0]},${o[1]}) ` : '') + it.base);
+  }
+  for (const e of edges) redrawEdge(e);
+}
+function redrawEdge(e) {
+  const a = off(e.from), b = off(e.to);
+  if (!a[0] && !a[1] && !b[0] && !b[1]) {
+    e.el.setAttribute('d', e.d0);
+  } else {
+    const n = e.pts.length;
+    e.el.setAttribute('d', e.pts.map((p, i) => {
+      const t = i / (n - 1);
+      return (i ? 'L' : 'M') + (p.x + a[0] * (1 - t) + b[0] * t).toFixed(1) + ',' + (p.y + a[1] * (1 - t) + b[1] * t).toFixed(1);
+    }).join(''));
+  }
+  for (const l of e.labels) {
+    const ox = a[0] * (1 - l.t) + b[0] * l.t, oy = a[1] * (1 - l.t) + b[1] * l.t;
+    l.el.setAttribute('transform', (ox || oy ? `translate(${ox},${oy}) ` : '') + l.base);
+  }
+}
+
+/* ---------- view ---------- */
+function applyView() {
+  viewport.style.transform = `translate(${view.panX}px,${view.panY}px) scale(${view.zoom})`;
+  const g = 20 * view.zoom;
+  canvas.style.backgroundSize = `${g}px ${g}px`;
+  canvas.style.backgroundPosition = `${view.panX}px ${view.panY}px`;
+  $('#zoomLbl').textContent = Math.round(view.zoom * 100) + '%';
+}
+function fit() {
+  if (!svgEl) return;
+  const bb = svgEl.getBBox(), vb = svgEl.viewBox.baseVal;
+  const x = bb.x - (vb?.x || 0), y = bb.y - (vb?.y || 0);
+  const cw = canvas.clientWidth, ch = canvas.clientHeight;
+  if ((cw < 100 || ch < 100 || !bb.width) && (fit.tries = (fit.tries || 0) + 1) < 30) { requestAnimationFrame(fit); return; }
+  fit.tries = 0;
+  view.zoom = Math.max(.1, Math.min(2, (cw - 60) / bb.width, (ch - 60) / bb.height));
+  view.panX = (cw - bb.width * view.zoom) / 2 - x * view.zoom;
+  view.panY = (ch - bb.height * view.zoom) / 2 - y * view.zoom;
+  applyView();
+}
+
+/* ---------- selection & editing ---------- */
+function select(k) {
+  if (selected && items.has(selected)) items.get(selected).el.classList.remove('sel');
+  selected = k;
+  if (k && items.has(k)) items.get(k).el.classList.add('sel');
+  updateButtons();
+}
+function updateButtons() {
+  const fc = isFlowchart();
+  const node = selected && items.get(selected)?.kind === 'node';
+  $('#addNode').disabled = !fc;
+  $('#connect').disabled = !fc;
+  $('#rename').disabled = !(fc && node);
+  $('#del').disabled = !(fc && node);
+  $('#undo').disabled = hIndex <= 0;
+  $('#redo').disabled = hIndex >= history.length - 1;
+}
+function insertLines(lines) {
+  const t = stripLayout(code.value).replace(/\s+$/, '') + '\n' + lines.join('\n');
+  setCode(withLayout(t));
+}
+function newId() {
+  const used = new Set(code.value.match(/\bN\d+\b/g) || []);
+  let i = 1; while (used.has('N' + i)) i++;
+  return 'N' + i;
+}
+function fmtLabel(s) { return /[()\[\]{}<>|"#;]/.test(s) ? '"' + s.replace(/"/g, '#quot;') + '"' : s; }
+
+function addNode() {
+  if (!isFlowchart()) return;
+  const label = prompt('Text für den neuen Knoten:', 'Neuer Knoten');
+  if (label === null) return;
+  const id = newId();
+  const sel = selected && items.get(selected)?.kind === 'node' ? flowId(selected) : null;
+  insertLines([sel ? `    ${sel} --> ${id}[${fmtLabel(label)}]` : `    ${id}[${fmtLabel(label)}]`]);
+  selected = 'flowchart-' + id;
+}
+function connectNodes(a, b) {
+  const label = prompt(`Verbindung ${flowId(a)} → ${flowId(b)}\nBeschriftung (leer = keine):`, '');
+  if (label === null) return;
+  insertLines([label.trim() ? `    ${flowId(a)} -- ${fmtLabel(label.trim())} --> ${flowId(b)}` : `    ${flowId(a)} --> ${flowId(b)}`]);
+}
+function renameNode(key) {
+  if (!isFlowchart() || items.get(key)?.kind !== 'node') return;
+  const id = flowId(key);
+  const cur = items.get(key).el.textContent.trim();
+  const label = prompt(`Neuer Text für ${id}:`, cur);
+  if (label === null) return;
+  const t = code.value, txt = fmtLabel(label);
+  const re = new RegExp('(^|[^\\w])' + esc(id) + '\\s*(\\(\\(\\(|\\(\\(|\\(\\[|\\[\\[|\\[\\(|\\{\\{|\\[\\/|\\[\\\\|>|\\(|\\[|\\{)', 'm');
+  const m = re.exec(t);
+  if (!m) { insertLines([`    ${id}[${txt}]`]); return; }
+  const open = m[2];
+  const close = { '(((': ')))', '((': '))', '([': '])', '[[': ']]', '[(': ')]', '{{': '}}', '>': ']', '(': ')', '[': ']', '{': '}' }[open];
+  const start = m.index + m[0].length;
+  let from = start;
+  if (t[start] === '"') from = t.indexOf('"', start + 1) + 1;
+  let end;
+  if (close) end = t.indexOf(close, from);
+  else { const e1 = t.indexOf('/]', from), e2 = t.indexOf('\\]', from); end = e1 < 0 ? e2 : e2 < 0 ? e1 : Math.min(e1, e2); }
+  if (end < 0) return;
+  setCode(t.slice(0, start) + txt + t.slice(end));
+}
+function deleteNode(key) {
+  if (!isFlowchart() || items.get(key)?.kind !== 'node') return;
+  const id = flowId(key);
+  const re = new RegExp('(^|[^\\w])' + esc(id) + '(?![\\w])');
+  const lines = stripLayout(code.value).split('\n');
+  const out = lines.filter((l, i) => {
+    if (i === 0 || /^\s*%%/.test(l)) return true;
+    const bare = l.replace(/"[^"]*"/g, '').replace(/\[[^\]]*\]|\([^)]*\)|\{[^}]*\}|\|[^|]*\|/g, '').replace(/--\s[^-]*?\s--/g, '--');
+    return !re.test(bare);
+  });
+  delete layout[key];
+  selected = null;
+  setCode(withLayout(out.join('\n')));
+}
+
+/* ---------- pointer: drag nodes / pan / zoom ---------- */
+let drag = null;
+canvas.addEventListener('pointerdown', ev => {
+  if (ev.button !== 0) return;
+  const g = ev.target.closest('g.node, g.cluster');
+  const key = g && elKey.get(g);
+  if (key) {
+    if (connectMode) {
+      if (items.get(key).kind !== 'node') return;
+      if (!connectFrom) { connectFrom = key; g.classList.add('src'); }
+      else if (connectFrom !== key) {
+        const a = connectFrom; items.get(a)?.el.classList.remove('src'); connectFrom = null;
+        connectNodes(a, key);
+      }
+      return;
+    }
+    select(key);
+    const keys = [key, ...collectChildren(key)];
+    drag = { type: 'node', keys, sx: ev.clientX, sy: ev.clientY, orig: keys.map(k => [...off(k)]), moved: false };
+  } else {
+    if (!connectMode) select(null);
+    drag = { type: 'pan', sx: ev.clientX, sy: ev.clientY, px: view.panX, py: view.panY };
+    canvas.classList.add('panning');
+  }
+  canvas.setPointerCapture(ev.pointerId);
+});
+function collectChildren(k, acc = new Set()) {
+  for (const c of items.get(k)?.children || []) if (!acc.has(c)) { acc.add(c); collectChildren(c, acc); }
+  return [...acc];
+}
+canvas.addEventListener('pointermove', ev => {
+  if (!drag) return;
+  const dx = ev.clientX - drag.sx, dy = ev.clientY - drag.sy;
+  if (drag.type === 'pan') { view.panX = drag.px + dx; view.panY = drag.py + dy; applyView(); return; }
+  if (!drag.moved && Math.hypot(dx, dy) < 3) return;
+  drag.moved = true;
+  drag.keys.forEach((k, i) => { layout[k] = [drag.orig[i][0] + dx / view.zoom, drag.orig[i][1] + dy / view.zoom]; });
+  applyLayout();
+});
+const endDrag = () => {
+  if (drag?.type === 'node' && drag.moved) { code.value = withLayout(code.value); save(); pushHistory(); }
+  drag = null; canvas.classList.remove('panning');
+};
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const r = canvas.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
+  const nz = Math.max(.1, Math.min(5, view.zoom * Math.exp(-ev.deltaY * .0015)));
+  view.panX = mx - (mx - view.panX) * nz / view.zoom;
+  view.panY = my - (my - view.panY) * nz / view.zoom;
+  view.zoom = nz; applyView();
+}, { passive: false });
+canvas.addEventListener('dblclick', ev => {
+  const g = ev.target.closest('g.node'); const k = g && elKey.get(g);
+  if (k) renameNode(k);
+});
+
+/* ---------- editor ---------- */
+let typingTimer;
+code.addEventListener('input', () => {
+  clearTimeout(typingTimer);
+  typingTimer = setTimeout(() => { save(); pushHistory(); render(); }, 350);
+});
+code.addEventListener('keydown', ev => {
+  if (ev.key === 'Tab') {
+    ev.preventDefault();
+    const s = code.selectionStart, e = code.selectionEnd;
+    code.setRangeText('    ', s, e, 'end');
+    code.dispatchEvent(new Event('input'));
+  }
+});
+
+/* ---------- toolbar ---------- */
+$('#tpl').addEventListener('change', ev => {
+  const k = ev.target.value; ev.target.value = '';
+  if (!k) return;
+  selected = null; firstRender = true;
+  setCode(TEMPLATES[k]);
+});
+$('#file').addEventListener('change', ev => { const f = ev.target.files[0]; if (f) openFile(f); ev.target.value = ''; });
+async function openFile(f) {
+  let t = await f.text();
+  const m = t.match(/```mermaid\s*\n([\s\S]*?)```/);
+  if (m) t = m[1];
+  selected = null; firstRender = true;
+  setCode(t);
+  toast(`${f.name} geöffnet`);
+}
+function saveMmd() { download(new Blob([code.value], { type: 'text/plain' }), 'diagramm.mmd'); }
+$('#saveMmd').addEventListener('click', saveMmd);
+
+function exportSvg() {
+  if (!svgEl) return null;
+  const bb = svgEl.getBBox(), pad = 20;
+  const clone = svgEl.cloneNode(true);
+  clone.querySelectorAll('.sel,.src').forEach(e => e.classList.remove('sel', 'src'));
+  const w = bb.width + 2 * pad, h = bb.height + 2 * pad;
+  clone.setAttribute('viewBox', `${bb.x - pad} ${bb.y - pad} ${w} ${h}`);
+  clone.setAttribute('width', w); clone.setAttribute('height', h);
+  clone.style.maxWidth = '';
+  return { s: new XMLSerializer().serializeToString(clone), w, h };
+}
+$('#expSvg').addEventListener('click', () => {
+  const r = exportSvg(); if (r) download(new Blob([r.s], { type: 'image/svg+xml' }), 'diagramm.svg');
+});
+$('#expPng').addEventListener('click', () => {
+  const r = exportSvg(); if (!r) return;
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas'), sc = 2;
+    c.width = r.w * sc; c.height = r.h * sc;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = getComputedStyle(canvas).backgroundColor; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    try { c.toBlob(b => b ? download(b, 'diagramm.png') : toast('PNG-Export fehlgeschlagen – nutze SVG')); }
+    catch { toast('PNG-Export bei diesem Diagrammtyp nicht möglich – nutze SVG'); }
+  };
+  img.onerror = () => toast('PNG-Export fehlgeschlagen – nutze SVG');
+  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(r.s);
+});
+
+$('#addNode').addEventListener('click', addNode);
+$('#connect').addEventListener('click', () => setConnect(!connectMode));
+function setConnect(on) {
+  connectMode = on;
+  if (connectFrom) items.get(connectFrom)?.el.classList.remove('src');
+  connectFrom = null;
+  $('#connect').classList.toggle('on', on);
+  canvas.classList.toggle('connect', on);
+  if (on) toast('Ersten, dann zweiten Knoten anklicken · Esc beendet');
+}
+$('#rename').addEventListener('click', () => selected && renameNode(selected));
+$('#del').addEventListener('click', () => selected && deleteNode(selected));
+$('#undo').addEventListener('click', undo);
+$('#redo').addEventListener('click', redo);
+$('#fit').addEventListener('click', fit);
+$('#resetLayout').addEventListener('click', () => { layout = {}; setCode(withLayout(code.value)); });
+$('#theme').addEventListener('change', ev => { themeSel = ev.target.value; save(); render(); });
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => themeSel === 'auto' && render());
+
+document.addEventListener('keydown', ev => {
+  const inEditor = document.activeElement === code;
+  const mod = ev.ctrlKey || ev.metaKey;
+  if (mod && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveMmd(); return; }
+  if (mod && ev.key === 'Enter') { ev.preventDefault(); render(); return; }
+  if (inEditor) return;
+  if (mod && ev.key.toLowerCase() === 'z') { ev.preventDefault(); ev.shiftKey ? redo() : undo(); }
+  else if (mod && ev.key.toLowerCase() === 'y') { ev.preventDefault(); redo(); }
+  else if ((ev.key === 'Delete' || ev.key === 'Backspace') && selected) { ev.preventDefault(); deleteNode(selected); }
+  else if (ev.key === 'F2' && selected) renameNode(selected);
+  else if (ev.key === 'Escape') { setConnect(false); select(null); }
+});
+
+/* ---------- splitter ---------- */
+const splitter = $('#splitter');
+splitter.addEventListener('pointerdown', ev => {
+  splitter.setPointerCapture(ev.pointerId);
+  const move = e => {
+    const pct = Math.max(15, Math.min(75, e.clientX / innerWidth * 100));
+    document.documentElement.style.setProperty('--split', pct + '%');
+  };
+  const up = () => { splitter.removeEventListener('pointermove', move); splitter.removeEventListener('pointerup', up); save(); };
+  splitter.addEventListener('pointermove', move);
+  splitter.addEventListener('pointerup', up);
+});
+
+/* ---------- drag & drop files ---------- */
+let dragDepth = 0;
+addEventListener('dragenter', e => { if (e.dataTransfer?.types.includes('Files')) { dragDepth++; $('#drop').classList.add('show'); } });
+addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('#drop').classList.remove('show'); } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => {
+  e.preventDefault(); dragDepth = 0; $('#drop').classList.remove('show');
+  const f = e.dataTransfer.files[0]; if (f) openFile(f);
+});
+
+/* ---------- start ---------- */
+code.value = load() ?? TEMPLATES.flow;
+$('#theme').value = themeSel;
+pushHistory();
+applyView();
+render();
+</script>
+</body>
+</html>

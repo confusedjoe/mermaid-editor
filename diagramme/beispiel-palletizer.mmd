@@ -1,0 +1,14 @@
+flowchart TD
+    Start([Start]) --> Ref[Referenzfahrt]
+    Ref --> Bereit{Bereit?}
+    Bereit -- Nein --> Stoer[Störung quittieren]
+    Stoer --> Ref
+    Bereit -- Ja --> Anfahren[Rohr anfahren]
+    subgraph Zyklus [Palettier-Zyklus]
+        Anfahren --> Vakuum[Vakuum ein]
+        Vakuum --> Transport[Transport zur Palette]
+        Transport --> Ablegen[Vakuum aus / Ablegen]
+    end
+    Ablegen --> Voll{Palette voll?}
+    Voll -- Nein --> Anfahren
+    Voll -- Ja --> Ende([Ende])
