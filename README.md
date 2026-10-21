@@ -1,5 +1,7 @@
 # Mermaid Editor
 
+**Online öffnen:** https://confusedjoe.github.io/mermaid-editor/
+
 Einzelne HTML-Datei zum Erstellen und Bearbeiten von Mermaid-Diagrammen – einfach `mermaid-editor.html` im Browser öffnen (Internet nötig, Mermaid kommt vom CDN).
 
 - Links Code, rechts Live-Vorschau
@@ -9,3 +11,7 @@ Einzelne HTML-Datei zum Erstellen und Bearbeiten von Mermaid-Diagrammen – einf
 - Pan per Hintergrund ziehen, Zoom per Mausrad
 
 Beispieldiagramme liegen in `diagramme/`.
+
+## Lizenz
+
+MIT – siehe [LICENSE](LICENSE). Nutzt [Mermaid](https://github.com/mermaid-js/mermaid) (MIT) vom CDN.
