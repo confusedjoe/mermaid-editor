@@ -2,7 +2,10 @@
 <html lang="de">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#2f6fde">
 <title>Mermaid Editor</title>
 <style>
 :root{
@@ -24,13 +27,14 @@
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden}
+body{background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;overflow:hidden;height:100dvh}
 header{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--border)}
 header h1{font-size:15px;margin:0 10px 0 0;font-weight:600}
 .grp{display:flex;gap:4px;align-items:center;padding-right:8px;margin-right:4px;border-right:1px solid var(--border)}
 .grp:last-child{border-right:0}
 button,select,label.btn{font:inherit;font-size:13px;color:var(--text);background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;white-space:nowrap}
 button:hover,select:hover,label.btn:hover{border-color:var(--accent)}
+label.btn{display:inline-flex;align-items:center}
 button.on{background:var(--accent-weak);border-color:var(--accent);color:var(--accent)}
 button:disabled{opacity:.45;cursor:default}
 .lbl{color:var(--muted);font-size:12px;margin-right:2px}
@@ -62,16 +66,49 @@ footer .sp{flex:1}
 #toast.show{opacity:.95}
 #drop{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:color-mix(in srgb,var(--accent) 18%,transparent);border:3px dashed var(--accent);font-size:20px;color:var(--accent);z-index:10}
 #drop.show{display:flex}
+#tabs{display:none;gap:4px}
+#tabCode.err::after{content:" ●";color:var(--danger)}
+button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+dialog{border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--text);padding:0;width:min(560px,calc(100vw - 24px));max-height:calc(100dvh - 24px)}
+dialog::backdrop{background:rgb(0 0 0 / .45)}
+.dlg{display:flex;flex-direction:column;gap:8px;padding:14px 16px}
+.dlg h2{font-size:16px;margin:0}
+.dlg p{margin:0;color:var(--muted);font-size:12.5px}
+.dlg .flbl{font-size:12.5px;color:var(--muted);margin-top:4px}
+.dlg textarea{width:100%;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--code-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;resize:vertical}
+.dlg .row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.dlg .sp{flex:1}
 @media (max-width:800px){
-  main{grid-template-columns:1fr;grid-template-rows:40% 0 1fr}
+  header{flex-wrap:nowrap;overflow-x:auto;padding:6px 8px}
+  header>*{flex:none}
+  header h1{display:none}
+  main{grid-template-columns:1fr;grid-template-rows:1fr}
   #splitter{display:none}
-  footer .hint{display:none}
+  /* Handy: Code und Diagramm liegen übereinander, Umschalten über die Reiter unten.
+     visibility statt display, damit das Diagramm auch verdeckt messbar bleibt. */
+  #editorPane,#canvas{grid-area:1/1}
+  body:not(.show-code) #editorPane,body.show-code #canvas{visibility:hidden;pointer-events:none}
+  #code,.dlg textarea{font-size:16px}
+  footer{padding:6px 8px}
+  footer .hint,#info{display:none}
+  #tabs{display:flex}
+  #toast{bottom:64px}
+}
+@media (pointer:coarse){
+  button,select,label.btn{min-height:38px;padding:6px 12px}
+  .sw{width:30px;height:30px;min-height:0;padding:0}
+  #swatches{gap:5px}
+  .cin{min-height:38px;padding:2px 4px 2px 8px}
+  .cin input{width:30px;height:30px}
 }
 </style>
 </head>
 <body>
 <header>
   <h1>Mermaid Editor</h1>
+  <div class="grp">
+    <button id="ai" class="pri" title="Diagramm mit KI (z. B. Claude) erstellen oder ändern">✦ KI</button>
+  </div>
   <div class="grp">
     <select id="tpl" title="Vorlage laden">
       <option value="">Vorlage …</option>
@@ -129,6 +166,7 @@ footer .sp{flex:1}
   <div id="canvas"><div id="viewport"></div></div>
 </main>
 <footer>
+  <div id="tabs"><button id="tabCode">Code</button><button id="tabView" class="on">Diagramm</button></div>
   <span class="hint">Knoten ziehen = verschieben · Hintergrund ziehen = Ansicht schieben · Mausrad = Zoom · Doppelklick = umbenennen · Entf = löschen</span>
   <span class="sp"></span>
   <span id="info"></span>
@@ -136,6 +174,27 @@ footer .sp{flex:1}
 </footer>
 <div id="toast"></div>
 <div id="drop">Datei hier ablegen</div>
+<dialog id="aiDlg">
+  <form method="dialog" class="dlg">
+    <h2>Mit KI bearbeiten</h2>
+    <p>1. Wunsch eingeben · 2. Prompt an Claude senden (App oder claude.ai) · 3. Antwort hier einfügen und übernehmen</p>
+    <label class="flbl" for="aiWish">Was soll das Diagramm zeigen oder was soll sich ändern?</label>
+    <textarea id="aiWish" rows="3" placeholder="z. B. Füge nach «Verarbeiten» eine Prüfung mit Fehlerzweig ein"></textarea>
+    <div class="row">
+      <button type="button" id="aiCopy" class="pri">Prompt kopieren</button>
+      <button type="button" id="aiShare" hidden>Teilen …</button>
+      <button type="button" id="aiOpen">Claude öffnen</button>
+    </div>
+    <label class="flbl" for="aiReply">Antwort von Claude</label>
+    <textarea id="aiReply" rows="5" placeholder="Antwort hier einfügen – der Mermaid-Block wird automatisch herausgesucht"></textarea>
+    <div class="row">
+      <button type="button" id="aiPaste">Aus Zwischenablage</button>
+      <button type="button" id="aiApply" class="pri">Übernehmen</button>
+      <span class="sp"></span>
+      <button value="close">Schliessen</button>
+    </div>
+  </form>
+</dialog>
 
 <script type="module">
 import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs';
@@ -348,6 +407,7 @@ async function render() {
     if (seq !== renderSeq) return;
     viewport.innerHTML = svg;
     errBox.classList.remove('show');
+    $('#tabCode').classList.remove('err');
     svgEl = viewport.querySelector('svg');
     const vb = svgEl.viewBox.baseVal;
     if (vb && vb.width) { svgEl.setAttribute('width', vb.width); svgEl.setAttribute('height', vb.height); }
@@ -364,6 +424,7 @@ async function render() {
     if (seq !== renderSeq) return;
     errBox.textContent = String(e?.message || e).replace(/^Error:\s*/, '');
     errBox.classList.add('show');
+    $('#tabCode').classList.add('err');
   }
   updateButtons();
 }
@@ -642,12 +703,35 @@ function deleteNode(key) {
   setCode(withLayout(out.join('\n')));
 }
 
-/* ---------- pointer: drag nodes / pan / zoom ---------- */
-let drag = null;
+/* ---------- pointer: drag nodes / pan / zoom (Maus und Touch) ---------- */
+let drag = null, pinch = null, lastTap = null, touchRenameAt = 0;
+const touches = new Map();  // pointerId -> {x, y}
+function pinchInfo() {
+  const [a, b] = [...touches.values()];
+  return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+}
 canvas.addEventListener('pointerdown', ev => {
   if (ev.button !== 0) return;
+  touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  try { canvas.setPointerCapture(ev.pointerId); } catch {}
+  if (touches.size === 2) {
+    // zweiter Finger: laufendes Ziehen abschliessen, Pinch-Zoom beginnen
+    if (drag?.type === 'node' && drag.moved) { code.value = withLayout(code.value); save(); pushHistory(); }
+    drag = null; canvas.classList.remove('panning');
+    pinch = { ...pinchInfo(), zoom: view.zoom, panX: view.panX, panY: view.panY };
+    return;
+  }
+  if (touches.size > 2) return;
   const g = ev.target.closest('g.node, g.cluster');
   const key = g && elKey.get(g);
+  if (key && ev.pointerType === 'touch' && !connectMode) {
+    // Doppeltippen = umbenennen
+    if (lastTap && lastTap.key === key && ev.timeStamp - lastTap.t < 350) {
+      lastTap = null; touchRenameAt = Date.now();
+      select(key); renameNode(key); return;
+    }
+    lastTap = { key, t: ev.timeStamp };
+  }
   if (key) {
     if (connectMode) {
       if (items.get(key).kind !== 'node') return;
@@ -666,13 +750,22 @@ canvas.addEventListener('pointerdown', ev => {
     drag = { type: 'pan', sx: ev.clientX, sy: ev.clientY, px: view.panX, py: view.panY };
     canvas.classList.add('panning');
   }
-  canvas.setPointerCapture(ev.pointerId);
 });
 function collectChildren(k, acc = new Set()) {
   for (const c of items.get(k)?.children || []) if (!acc.has(c)) { acc.add(c); collectChildren(c, acc); }
   return [...acc];
 }
 canvas.addEventListener('pointermove', ev => {
+  if (touches.has(ev.pointerId)) touches.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (pinch) {
+    if (touches.size < 2) return;
+    const p = pinchInfo(), r = canvas.getBoundingClientRect();
+    const nz = Math.max(.1, Math.min(5, pinch.zoom * p.d / pinch.d));
+    // Punkt unter der Startmitte bleibt unter den Fingern
+    const wx = (pinch.x - r.left - pinch.panX) / pinch.zoom, wy = (pinch.y - r.top - pinch.panY) / pinch.zoom;
+    view.zoom = nz; view.panX = p.x - r.left - wx * nz; view.panY = p.y - r.top - wy * nz;
+    applyView(); return;
+  }
   if (!drag) return;
   const dx = ev.clientX - drag.sx, dy = ev.clientY - drag.sy;
   if (drag.type === 'pan') { view.panX = drag.px + dx; view.panY = drag.py + dy; applyView(); return; }
@@ -681,7 +774,9 @@ canvas.addEventListener('pointermove', ev => {
   drag.keys.forEach((k, i) => { layout[k] = [drag.orig[i][0] + dx / view.zoom, drag.orig[i][1] + dy / view.zoom]; });
   applyLayout();
 });
-const endDrag = () => {
+const endDrag = ev => {
+  touches.delete(ev.pointerId);
+  if (pinch) { if (touches.size < 2) pinch = null; return; }
   if (drag?.type === 'node' && drag.moved) { code.value = withLayout(code.value); save(); pushHistory(); }
   drag = null; canvas.classList.remove('panning');
 };
@@ -696,6 +791,7 @@ canvas.addEventListener('wheel', ev => {
   view.zoom = nz; applyView();
 }, { passive: false });
 canvas.addEventListener('dblclick', ev => {
+  if (Date.now() - touchRenameAt < 1000) return;  // schon per Doppeltippen erledigt
   const g = ev.target.closest('g.node'); const k = g && elKey.get(g);
   if (k) renameNode(k);
 });
@@ -784,7 +880,7 @@ $('#theme').addEventListener('change', ev => { themeSel = ev.target.value; save(
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => themeSel === 'auto' && render());
 
 document.addEventListener('keydown', ev => {
-  const inEditor = document.activeElement === code;
+  const inEditor = /^(TEXTAREA|INPUT|SELECT)$/.test(document.activeElement?.tagName) || $('#aiDlg').open;
   const mod = ev.ctrlKey || ev.metaKey;
   if (mod && ev.key.toLowerCase() === 's') { ev.preventDefault(); saveMmd(); return; }
   if (mod && ev.key === 'Enter') { ev.preventDefault(); render(); return; }
@@ -817,6 +913,77 @@ addEventListener('dragover', e => e.preventDefault());
 addEventListener('drop', e => {
   e.preventDefault(); dragDepth = 0; $('#drop').classList.remove('show');
   const f = e.dataTransfer.files[0]; if (f) openFile(f);
+});
+
+/* ---------- Handy: Reiter Code / Diagramm ---------- */
+function showTab(c) {
+  document.body.classList.toggle('show-code', c);
+  $('#tabCode').classList.toggle('on', c);
+  $('#tabView').classList.toggle('on', !c);
+  if (!c) code.blur();
+}
+$('#tabCode').addEventListener('click', () => showTab(true));
+$('#tabView').addEventListener('click', () => showTab(false));
+
+/* ---------- KI: Prompt kopieren / teilen, Antwort übernehmen ---------- */
+const FENCE = '`'.repeat(3);
+function aiPrompt() {
+  const wish = $('#aiWish').value.trim() || 'Mach das Diagramm übersichtlicher und verbessere die Beschriftungen.';
+  return `Du hilfst mir, ein Mermaid-Diagramm zu bearbeiten.
+
+Auftrag: ${wish}
+
+Regeln:
+- Antworte nur mit dem vollständigen, gültigen Mermaid-Code in einem einzigen ${FENCE}mermaid-Block, ohne Erklärung davor oder danach.
+- Behalte bestehende Knoten-IDs bei, benenne sie nicht um.
+- Lass die Zeilen "%% @layout {...}", "%% @colors {...}" und "style ..." unverändert stehen (sie speichern Positionen und Farben). Für neue Knoten dort nichts eintragen.
+- Texte mit Sonderzeichen wie ( ) [ ] { } in Anführungszeichen setzen.
+- Beschriftungen auf Deutsch.
+
+Aktueller Code:
+${FENCE}mermaid
+${code.value.trim()}
+${FENCE}`;
+}
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); return true; } catch {}
+  const ta = document.createElement('textarea');
+  ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  $('#aiDlg').append(ta); ta.select();
+  let ok = false; try { ok = document.execCommand('copy'); } catch {}
+  ta.remove(); return ok;
+}
+function extractMermaid(t) {
+  const m = t.match(/```(?:mermaid)?[^\n]*\n([\s\S]*?)```/);
+  return (m ? m[1] : t).trim() + '\n';
+}
+$('#ai').addEventListener('click', () => $('#aiDlg').showModal());
+$('#aiCopy').addEventListener('click', async () => {
+  toast(await copyText(aiPrompt()) ? 'Prompt kopiert – jetzt in Claude einfügen' : 'Kopieren nicht möglich');
+});
+if (navigator.share) {
+  $('#aiShare').hidden = false;
+  // Handy: Teilen-Menü, dort die Claude-App wählen
+  $('#aiShare').addEventListener('click', () => navigator.share({ text: aiPrompt() }).catch(() => {}));
+}
+$('#aiOpen').addEventListener('click', async () => {
+  await copyText(aiPrompt());
+  window.open('https://claude.ai/new', '_blank');
+  toast('Prompt kopiert – in Claude einfügen');
+});
+$('#aiPaste').addEventListener('click', async () => {
+  try { $('#aiReply').value = await navigator.clipboard.readText(); }
+  catch { toast('Bitte ins Feld tippen, lange drücken und «Einfügen» wählen'); }
+});
+$('#aiApply').addEventListener('click', () => {
+  const t = $('#aiReply').value.trim();
+  if (!t) { toast('Zuerst die Antwort einfügen'); return; }
+  selected = null; firstRender = true;
+  setCode(extractMermaid(t));
+  $('#aiReply').value = '';
+  $('#aiDlg').close();
+  showTab(false);
+  toast('Übernommen – rückgängig mit ↶');
 });
 
 /* ---------- start ---------- */
