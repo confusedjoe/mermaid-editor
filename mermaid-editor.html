@@ -33,6 +33,12 @@ button,select,label.btn{font:inherit;font-size:13px;color:var(--text);background
 button:hover,select:hover,label.btn:hover{border-color:var(--accent)}
 button.on{background:var(--accent-weak);border-color:var(--accent);color:var(--accent)}
 button:disabled{opacity:.45;cursor:default}
+.lbl{color:var(--muted);font-size:12px;margin-right:2px}
+#swatches{display:flex;gap:3px}
+.sw{width:18px;height:18px;padding:0;border-radius:4px;border:1px solid var(--border)}
+.cin{display:flex;align-items:center;gap:2px;font-size:12px;color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:1px 2px 1px 6px;cursor:pointer}
+.cin input{width:24px;height:22px;padding:0;border:0;background:none;cursor:pointer}
+#colorGrp.off{opacity:.45;pointer-events:none}
 main{flex:1;display:grid;grid-template-columns:var(--split,38%) 6px 1fr;min-height:0}
 #editorPane{display:flex;flex-direction:column;min-width:0;background:var(--code-bg)}
 #code{flex:1;width:100%;resize:none;border:0;outline:0;padding:12px 14px;background:var(--code-bg);color:var(--text);font:13px/1.55 ui-monospace,Consolas,"Cascadia Code",monospace;tab-size:4;white-space:pre;overflow:auto}
@@ -88,6 +94,14 @@ footer .sp{flex:1}
     <button id="connect" title="Zwei Knoten nacheinander anklicken">Verbinden</button>
     <button id="rename" title="Doppelklick auf Knoten geht auch">Umbenennen</button>
     <button id="del" title="Entf">Löschen</button>
+  </div>
+  <div class="grp" id="colorGrp" title="Ausgewähltes Feld einfärben">
+    <span class="lbl">Farbe</span>
+    <div id="swatches"></div>
+    <label class="cin" title="Füllung">▣<input id="cFill" type="color"></label>
+    <label class="cin" title="Rahmen">□<input id="cStroke" type="color"></label>
+    <label class="cin" title="Textfarbe">A<input id="cText" type="color"></label>
+    <button id="cClear" title="Farbe entfernen">✕</button>
   </div>
   <div class="grp">
     <button id="undo" title="Rückgängig (Strg+Z ausserhalb des Editors)">↶</button>
@@ -340,7 +354,9 @@ async function render() {
     svgEl.style.maxWidth = 'none';
     collect();
     applyLayout();
+    applyColors();
     if (selected && items.has(selected)) items.get(selected).el.classList.add('sel'); else selected = null;
+    syncColorUI();
     if (firstRender) { firstRender = false; fit(); }
     $('#info').textContent = items.size ? `${items.size} verschiebbare Elemente` : 'Diagrammtyp ohne verschiebbare Knoten';
   } catch (e) {
@@ -456,7 +472,105 @@ function select(k) {
   selected = k;
   if (k && items.has(k)) items.get(k).el.classList.add('sel');
   updateButtons();
+  syncColorUI();
 }
+
+/* ---------- colors ----------
+   Flowchart: echte Mermaid-Zeilen "style ID fill:..,stroke:..,color:..".
+   Andere Diagrammtypen: Kommentar "%% @colors {...}", nach dem Rendern angewendet. */
+const PALETTE = ['#ffffff', '#fde68a', '#fed7aa', '#fecaca', '#e9d5ff', '#bfdbfe', '#bbf7d0', '#e5e7eb',
+                 '#f59e0b', '#dc2626', '#7c3aed', '#2563eb', '#16a34a', '#1f2937'];
+const COLORS_RE = /^%%\s*@colors\s+(\{.*\})\s*$/m;
+function parseMetaColors(t) { const m = t.match(COLORS_RE); try { return m ? JSON.parse(m[1]) : {}; } catch { return {}; } }
+function parseProps(s) {
+  const o = {};
+  s.replace(/;\s*$/, '').split(',').forEach(p => { const i = p.indexOf(':'); if (i > 0) o[p.slice(0, i).trim()] = p.slice(i + 1).trim(); });
+  return o;
+}
+const styleLineRe = (id, flags) => new RegExp('^[ \\t]*style[ \\t]+' + esc(id) + '[ \\t]+(.*)$' + (flags.includes('g') ? '(\\r?\\n)?' : ''), flags);
+function colorTarget() {
+  if (!selected || !items.has(selected)) return null;
+  const it = items.get(selected);
+  if (isFlowchart()) return { mode: 'style', id: it.kind === 'cluster' ? selected.slice(8) : flowId(selected) };
+  return { mode: 'meta', key: selected };
+}
+function getColors(t = colorTarget()) {
+  if (!t) return {};
+  if (t.mode === 'style') { const m = code.value.match(styleLineRe(t.id, 'm')); return m ? parseProps(m[1]) : {}; }
+  return parseMetaColors(code.value)[t.key] || {};
+}
+function setColors(props, commit) {
+  const t = colorTarget(); if (!t) return;
+  const merged = { ...getColors(t), ...props };
+  for (const k in merged) if (merged[k] == null) delete merged[k];
+  let text = stripLayout(code.value);
+  if (t.mode === 'style') {
+    text = text.replace(styleLineRe(t.id, 'gm'), '').replace(/\s+$/, '');
+    const s = Object.entries(merged).map(([k, v]) => `${k}:${v}`).join(',');
+    if (s) text += `\n    style ${t.id} ${s}`;
+  } else {
+    const meta = parseMetaColors(text);
+    if (Object.keys(merged).length) meta[t.key] = merged; else delete meta[t.key];
+    text = text.replace(/^%%\s*@colors.*(\r?\n)?/m, '').replace(/\s+$/, '');
+    if (Object.keys(meta).length) text += '\n%% @colors ' + JSON.stringify(meta);
+  }
+  code.value = withLayout(text);
+  save();
+  if (commit) { pushHistory(); render(); }
+  else { clearTimeout(setColors.h); setColors.h = setTimeout(render, 120); }
+}
+const shapesOf = el => el.querySelectorAll(':scope > rect, :scope > polygon, :scope > circle, :scope > ellipse, :scope > path, :scope > g > rect, :scope > g > polygon, :scope > g > circle, :scope > g > path, :scope > .label-container');
+const textsOf = el => el.querySelectorAll('text, tspan');
+function applyColors() {
+  const fc = isFlowchart();
+  const meta = fc ? {} : parseMetaColors(code.value);
+  for (const [k, it] of items) {
+    const c = fc ? getColors({ mode: 'style', id: it.kind === 'cluster' ? k.slice(8) : flowId(k) }) : meta[k];
+    if (!c) continue;
+    if (!fc) shapesOf(it.el).forEach(s => {
+      if (c.fill) s.style.setProperty('fill', c.fill, 'important');
+      if (c.stroke) s.style.setProperty('stroke', c.stroke, 'important');
+    });
+    // Textfarbe auch im Flowchart setzen: ohne HTML-Labels greift "color:" sonst nicht auf SVG-Text
+    if (c.color) textsOf(it.el).forEach(s => s.style.setProperty('fill', c.color, 'important'));
+  }
+}
+function toHex(c) {
+  if (!c) return null;
+  if (/^#[0-9a-f]{6}$/i.test(c)) return c.toLowerCase();
+  if (/^#[0-9a-f]{3}$/i.test(c)) return '#' + [...c.slice(1)].map(x => x + x).join('').toLowerCase();
+  const m = c.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+  return m ? '#' + [m[1], m[2], m[3]].map(v => (+v).toString(16).padStart(2, '0')).join('') : null;
+}
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16), ch = s => Math.round(((n >> s) & 255) * f);
+  return '#' + [16, 8, 0].map(s => Math.min(255, ch(s)).toString(16).padStart(2, '0')).join('');
+}
+function textFor(hex) {
+  const n = parseInt(hex.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.55 ? '#1d232b' : '#ffffff';
+}
+function syncColorUI() {
+  const t = colorTarget();
+  $('#colorGrp').classList.toggle('off', !t);
+  if (!t) return;
+  const c = getColors(t), el = items.get(selected).el;
+  const shape = shapesOf(el)[0], txt = textsOf(el)[0];
+  $('#cFill').value = toHex(c.fill) || toHex(shape && getComputedStyle(shape).fill) || '#ffffff';
+  $('#cStroke').value = toHex(c.stroke) || toHex(shape && getComputedStyle(shape).stroke) || '#333333';
+  $('#cText').value = toHex(c.color) || toHex(txt && getComputedStyle(txt).fill) || '#1d232b';
+}
+PALETTE.forEach(col => {
+  const b = document.createElement('button');
+  b.className = 'sw'; b.style.background = col; b.title = col;
+  b.addEventListener('click', () => setColors({ fill: col, stroke: shade(col, col === '#ffffff' ? .55 : .7), color: textFor(col) }, true));
+  $('#swatches').append(b);
+});
+[['#cFill', 'fill'], ['#cStroke', 'stroke'], ['#cText', 'color']].forEach(([sel, prop]) => {
+  $(sel).addEventListener('input', ev => setColors({ [prop]: ev.target.value }, false));
+  $(sel).addEventListener('change', () => pushHistory());
+});
+$('#cClear').addEventListener('click', () => setColors({ fill: null, stroke: null, color: null }, true));
 function updateButtons() {
   const fc = isFlowchart();
   const node = selected && items.get(selected)?.kind === 'node';
