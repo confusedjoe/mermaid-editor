@@ -7,6 +7,7 @@ Einzelne HTML-Datei zum Erstellen und Bearbeiten von Mermaid-Diagrammen – einf
 - Links Code, rechts Live-Vorschau
 - Knoten und Subgraphen frei verschieben, Pfeile folgen; Positionen landen als `%% @layout {...}` im Code
 - Flowchart: Knoten anfügen, verbinden, umbenennen (Doppelklick/F2), löschen (Entf), Undo/Redo
+- Jedes Feld einzeln einfärben (Palette oder Füllung/Rahmen/Text frei wählbar)
 - Vorlagen, Öffnen/Speichern als `.mmd`, Export als SVG/PNG
 - Pan per Hintergrund ziehen, Zoom per Mausrad
 
