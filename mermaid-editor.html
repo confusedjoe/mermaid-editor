@@ -120,6 +120,7 @@ dialog::backdrop{background:rgb(0 0 0 / .45)}
       <option value="gantt">Gantt</option>
       <option value="mind">Mindmap</option>
       <option value="pie">Kreisdiagramm</option>
+      <option value="sankey">Sankey</option>
     </select>
     <label class="btn" title="Datei öffnen (.mmd / .md)">Öffnen<input id="file" type="file" accept=".mmd,.mermaid,.md,.txt" hidden></label>
     <button id="saveMmd" title="Als .mmd speichern (Strg+S)">Speichern</button>
@@ -300,6 +301,21 @@ pie: `pie title Zeitaufwand
     "Test" : 25
     "Dokumentation" : 20
     "Meetings" : 10
+`,
+sankey: `sankey-beta
+
+Netz,Hauptverteilung,100
+Photovoltaik,Hauptverteilung,30
+Hauptverteilung,Antriebe,60
+Hauptverteilung,Druckluft,25
+Hauptverteilung,Steuerung,15
+Hauptverteilung,Beleuchtung,30
+Antriebe,Nutzarbeit,42
+Antriebe,Verluste,18
+Druckluft,Nutzarbeit,8
+Druckluft,Verluste,17
+Steuerung,Verluste,15
+Beleuchtung,Verluste,30
 `
 };
 
